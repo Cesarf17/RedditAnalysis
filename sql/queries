@@ -1,0 +1,125 @@
+
+--Here We Have Content Type
+SELECT
+	content_type,
+	COUNT(*) as count,
+	AVG(score) as avg_score,
+	AVG(num_comments) as avg_comments
+FROM posts
+GROUP BY content_type
+
+--Comment Depth Analysis
+SELECT
+	depth,
+	COUNT(*) as comment_count,
+	AVG(score) as avg_score
+FROM comments
+GROUP BY depth
+ORDER BY depth;
+
+--Top Commenters
+SELECT
+	author,
+	COUNT(*) as comment_count,
+	AVG(score) as avg_score
+FROM comments
+GROUP BY author
+HAVING COUNT(*) > 5
+ORDER BY comment_count DESC;
+
+
+-- Basic viral post metrics
+WITH ViralPosts AS (
+    SELECT *
+    FROM posts 
+    WHERE score > (SELECT AVG(score) + 2*STDEV(score) FROM posts)
+)
+SELECT 
+    DATEPART(HOUR, created_utc) as post_hour,
+    DATEPART(WEEKDAY, created_utc) as post_day,
+    content_type,
+    domain,
+    is_self,
+    over_18,
+    spoiler,
+    distinguished,
+    stickied,
+    COUNT(*) as post_count,
+    AVG(score) as avg_score,
+    AVG(num_comments) as avg_comments,
+    AVG(upvote_ratio) as avg_upvote_ratio
+FROM ViralPosts
+GROUP BY 
+    DATEPART(HOUR, created_utc),
+    DATEPART(WEEKDAY, created_utc),
+    content_type,
+    domain,
+    is_self,
+    over_18,
+    spoiler,
+    distinguished,
+    stickied
+ORDER BY avg_score DESC;
+
+-- Comment timing analysis
+SELECT 
+    timing.time_range,
+    COUNT(*) as comment_count,
+    AVG(c.score) as avg_comment_score,
+    AVG(CAST(c.is_submitter as float)) as author_participation_rate
+FROM comments c
+JOIN posts p ON c.post_id = p.id
+CROSS APPLY (
+    SELECT 
+        CASE 
+            WHEN DATEDIFF(MINUTE, p.created_utc, c.created_utc) <= 30 THEN 'First 30min'
+            WHEN DATEDIFF(MINUTE, p.created_utc, c.created_utc) <= 60 THEN '30-60min'
+            WHEN DATEDIFF(MINUTE, p.created_utc, c.created_utc) <= 120 THEN '1-2hrs'
+            ELSE 'After 2hrs'
+        END as time_range
+) timing
+WHERE p.score > (SELECT AVG(score) + 2*STDEV(score) FROM posts)
+GROUP BY timing.time_range
+ORDER BY 
+    CASE timing.time_range
+        WHEN 'First 30min' THEN 1
+        WHEN '30-60min' THEN 2
+        WHEN '1-2hrs' THEN 3
+        ELSE 4
+    END;
+
+-- Title analysis
+SELECT 
+    CASE 
+        WHEN LEN(title) <= 30 THEN 'Short'
+        WHEN LEN(title) <= 60 THEN 'Medium'
+        ELSE 'Long'
+    END as title_length,
+    CASE 
+        WHEN title LIKE '%[%]%' THEN 1 
+        ELSE 0 
+    END as has_tags,
+    CASE 
+        WHEN title LIKE '%(%)%' THEN 1
+        ELSE 0
+    END as has_parentheses,
+    COUNT(*) as post_count,
+    AVG(score) as avg_score,
+    AVG(num_comments) as avg_comments,
+    AVG(upvote_ratio) as avg_upvote_ratio
+FROM posts
+WHERE score > (SELECT AVG(score) + 2*STDEV(score) FROM posts)
+GROUP BY 
+    CASE 
+        WHEN LEN(title) <= 30 THEN 'Short'
+        WHEN LEN(title) <= 60 THEN 'Medium'
+        ELSE 'Long'
+    END,
+    CASE 
+        WHEN title LIKE '%[%]%' THEN 1 
+        ELSE 0 
+    END,
+    CASE 
+        WHEN title LIKE '%(%)%' THEN 1
+        ELSE 0
+    END;
